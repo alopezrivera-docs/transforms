@@ -54,11 +54,12 @@ class T:
             Describes coordinates in the **NON-ROTATED REFERENCE FRAME** from the **BODY REFERENCE FRAME**
 
         :param delta:       Rotation angle in radians
+        :param suppress:    Suppress console output (True by default)
         &#34;&#34;&#34;
         if not isinstance(delta, type(None)):
             # Angle
             self.delta = delta
-            self.is_symbolic = &#39;sympy&#39; in delta.__module__
+            self.is_symbolic = hasattr(delta, &#39;__module__&#39;) and &#39;sympy&#39; in delta.__module__
             # Parameter vector for lambdification
             self.params = [delta] if not isinstance(delta, sp.core.mul.Mul) else list(delta.free_symbols)
             # Rotation matrix creation
@@ -76,16 +77,21 @@ class T:
     def T(self):
         &#34;&#34;&#34;
         Transform transpose
-            Describes coordinates in the **BODY REFERENCE FRAME** from the **NON-ROTATING REFERENCE FRAME**.
+            Describes coordinates in a **FINAL REFERENCE FRAME** from the **NON-ROTATING REFERENCE FRAME**.
+
+            In other words, it describes the rotation of a body from a fixed reference frame.
         :return:
         &#34;&#34;&#34;
         return globals()[type(self).__name__](matrix=self.matrix.T, params=self.params)
 
     def Inv(self):
         &#34;&#34;&#34;
+        As all transform matrices are orthogonal, their inverse is equal to their transpose.
+
         Transform inverse
-            Describes coordinates in the **FINAL REFERENCE FRAME** after **N LINEAR TRANSFORMATIONS** from the original
-            reference frame.
+            Describes coordinates in a **FINAL REFERENCE FRAME** from the **NON-ROTATING REFERENCE FRAME**.
+
+            IMPORTANTLY: The rotation angles are reversed.
         &#34;&#34;&#34;
         # Transpose
         inv_matrix = self.matrix.T
@@ -124,6 +130,37 @@ class T:
                 self.params += list(sp.Matrix(other).free_symbols)
             matrix = sp.Matrix(np.matmul(self.matrix, other)) if self.is_symbolic else np.matmul(self.matrix, other)
             return T_res(matrix=matrix, params=self.params)
+
+    def __add__(self, other):
+        &#34;&#34;&#34;
+        Addition between transforms, as well as between transforms and NumPy/SymPy arrays
+        &#34;&#34;&#34;
+
+        T_res = globals()[type(self).__name__]
+
+        if type(other).__bases__ == type(self).__bases__:
+            # Transform-Transform multiplication
+            #       If self and other are instances of classes with the same parent class &lt;class &#39;transform.T&#39;&gt;
+            if isinstance(self.matrix, type(other.matrix)):
+                # Both matrices are either SymPy matrices or NumPy arrays
+                matrix = self.matrix + other.matrix if self.is_symbolic else np.matmul(self.matrix, other.matrix)
+                # Right to left transform order -&gt; same parameter order
+                params = other.params + self.params
+                return T_res(matrix=matrix, params=params)
+            else:
+                # Type mismatch: surely 1 will be symbolic, and 1 will not
+                self.type_mismatch(other)
+                matrix = sp.Matrix(self.matrix + other.matrix)
+                return T_res(matrix=matrix, params=self.params)
+        else:
+            # Transform-NumPy/SymPy array multiplication
+            if sp.Matrix(other).free_symbols:
+                self.params += list(sp.Matrix(other).free_symbols)
+            matrix = sp.Matrix(self.matrix + other) if self.is_symbolic else self.matrix + other
+            return T_res(matrix=matrix, params=self.params)
+
+    def __rmul__(self, other):
+        return self.__mul__(other)
 
     def __call__(self, *args):
         &#34;&#34;&#34;
@@ -241,7 +278,9 @@ class Tz(T):
 <div class="desc"><p>Linear transformation
 Describes coordinates in the <strong>NON-ROTATED REFERENCE FRAME</strong> from the <strong>BODY REFERENCE FRAME</strong></p>
 <p>:param delta:
-Rotation angle in radians</p></div>
+Rotation angle in radians
+:param suppress:
+Suppress console output (True by default)</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -254,11 +293,12 @@ Rotation angle in radians</p></div>
             Describes coordinates in the **NON-ROTATED REFERENCE FRAME** from the **BODY REFERENCE FRAME**
 
         :param delta:       Rotation angle in radians
+        :param suppress:    Suppress console output (True by default)
         &#34;&#34;&#34;
         if not isinstance(delta, type(None)):
             # Angle
             self.delta = delta
-            self.is_symbolic = &#39;sympy&#39; in delta.__module__
+            self.is_symbolic = hasattr(delta, &#39;__module__&#39;) and &#39;sympy&#39; in delta.__module__
             # Parameter vector for lambdification
             self.params = [delta] if not isinstance(delta, sp.core.mul.Mul) else list(delta.free_symbols)
             # Rotation matrix creation
@@ -276,16 +316,21 @@ Rotation angle in radians</p></div>
     def T(self):
         &#34;&#34;&#34;
         Transform transpose
-            Describes coordinates in the **BODY REFERENCE FRAME** from the **NON-ROTATING REFERENCE FRAME**.
+            Describes coordinates in a **FINAL REFERENCE FRAME** from the **NON-ROTATING REFERENCE FRAME**.
+
+            In other words, it describes the rotation of a body from a fixed reference frame.
         :return:
         &#34;&#34;&#34;
         return globals()[type(self).__name__](matrix=self.matrix.T, params=self.params)
 
     def Inv(self):
         &#34;&#34;&#34;
+        As all transform matrices are orthogonal, their inverse is equal to their transpose.
+
         Transform inverse
-            Describes coordinates in the **FINAL REFERENCE FRAME** after **N LINEAR TRANSFORMATIONS** from the original
-            reference frame.
+            Describes coordinates in a **FINAL REFERENCE FRAME** from the **NON-ROTATING REFERENCE FRAME**.
+
+            IMPORTANTLY: The rotation angles are reversed.
         &#34;&#34;&#34;
         # Transpose
         inv_matrix = self.matrix.T
@@ -324,6 +369,37 @@ Rotation angle in radians</p></div>
                 self.params += list(sp.Matrix(other).free_symbols)
             matrix = sp.Matrix(np.matmul(self.matrix, other)) if self.is_symbolic else np.matmul(self.matrix, other)
             return T_res(matrix=matrix, params=self.params)
+
+    def __add__(self, other):
+        &#34;&#34;&#34;
+        Addition between transforms, as well as between transforms and NumPy/SymPy arrays
+        &#34;&#34;&#34;
+
+        T_res = globals()[type(self).__name__]
+
+        if type(other).__bases__ == type(self).__bases__:
+            # Transform-Transform multiplication
+            #       If self and other are instances of classes with the same parent class &lt;class &#39;transform.T&#39;&gt;
+            if isinstance(self.matrix, type(other.matrix)):
+                # Both matrices are either SymPy matrices or NumPy arrays
+                matrix = self.matrix + other.matrix if self.is_symbolic else np.matmul(self.matrix, other.matrix)
+                # Right to left transform order -&gt; same parameter order
+                params = other.params + self.params
+                return T_res(matrix=matrix, params=params)
+            else:
+                # Type mismatch: surely 1 will be symbolic, and 1 will not
+                self.type_mismatch(other)
+                matrix = sp.Matrix(self.matrix + other.matrix)
+                return T_res(matrix=matrix, params=self.params)
+        else:
+            # Transform-NumPy/SymPy array multiplication
+            if sp.Matrix(other).free_symbols:
+                self.params += list(sp.Matrix(other).free_symbols)
+            matrix = sp.Matrix(self.matrix + other) if self.is_symbolic else self.matrix + other
+            return T_res(matrix=matrix, params=self.params)
+
+    def __rmul__(self, other):
+        return self.__mul__(other)
 
     def __call__(self, *args):
         &#34;&#34;&#34;
@@ -396,18 +472,23 @@ Rotation angle in radians</p></div>
 <span>def <span class="ident">Inv</span></span>(<span>self)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Transform inverse
-Describes coordinates in the <strong>FINAL REFERENCE FRAME</strong> after <strong>N LINEAR TRANSFORMATIONS</strong> from the original
-reference frame.</p></div>
+<div class="desc"><p>As all transform matrices are orthogonal, their inverse is equal to their transpose.</p>
+<p>Transform inverse
+Describes coordinates in a <strong>FINAL REFERENCE FRAME</strong> from the <strong>NON-ROTATING REFERENCE FRAME</strong>.</p>
+<pre><code>IMPORTANTLY: The rotation angles are reversed.
+</code></pre></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def Inv(self):
     &#34;&#34;&#34;
+    As all transform matrices are orthogonal, their inverse is equal to their transpose.
+
     Transform inverse
-        Describes coordinates in the **FINAL REFERENCE FRAME** after **N LINEAR TRANSFORMATIONS** from the original
-        reference frame.
+        Describes coordinates in a **FINAL REFERENCE FRAME** from the **NON-ROTATING REFERENCE FRAME**.
+
+        IMPORTANTLY: The rotation angles are reversed.
     &#34;&#34;&#34;
     # Transpose
     inv_matrix = self.matrix.T
@@ -422,8 +503,10 @@ reference frame.</p></div>
 </code></dt>
 <dd>
 <div class="desc"><p>Transform transpose
-Describes coordinates in the <strong>BODY REFERENCE FRAME</strong> from the <strong>NON-ROTATING REFERENCE FRAME</strong>.
-:return:</p></div>
+Describes coordinates in a <strong>FINAL REFERENCE FRAME</strong> from the <strong>NON-ROTATING REFERENCE FRAME</strong>.</p>
+<pre><code>In other words, it describes the rotation of a body from a fixed reference frame.
+</code></pre>
+<p>:return:</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -431,7 +514,9 @@ Describes coordinates in the <strong>BODY REFERENCE FRAME</strong> from the <str
 <pre><code class="python">def T(self):
     &#34;&#34;&#34;
     Transform transpose
-        Describes coordinates in the **BODY REFERENCE FRAME** from the **NON-ROTATING REFERENCE FRAME**.
+        Describes coordinates in a **FINAL REFERENCE FRAME** from the **NON-ROTATING REFERENCE FRAME**.
+
+        In other words, it describes the rotation of a body from a fixed reference frame.
     :return:
     &#34;&#34;&#34;
     return globals()[type(self).__name__](matrix=self.matrix.T, params=self.params)</code></pre>
@@ -511,7 +596,9 @@ are replaced by the provided arguments.</p></div>
 <div class="desc"><p>Linear transformation
 Describes coordinates in the <strong>NON-ROTATED REFERENCE FRAME</strong> from the <strong>BODY REFERENCE FRAME</strong></p>
 <p>:param delta:
-Rotation angle in radians</p></div>
+Rotation angle in radians
+:param suppress:
+Suppress console output (True by default)</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -584,7 +671,9 @@ Rotation angle in radians</p></div>
 <div class="desc"><p>Linear transformation
 Describes coordinates in the <strong>NON-ROTATED REFERENCE FRAME</strong> from the <strong>BODY REFERENCE FRAME</strong></p>
 <p>:param delta:
-Rotation angle in radians</p></div>
+Rotation angle in radians
+:param suppress:
+Suppress console output (True by default)</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -657,7 +746,9 @@ Rotation angle in radians</p></div>
 <div class="desc"><p>Linear transformation
 Describes coordinates in the <strong>NON-ROTATED REFERENCE FRAME</strong> from the <strong>BODY REFERENCE FRAME</strong></p>
 <p>:param delta:
-Rotation angle in radians</p></div>
+Rotation angle in radians
+:param suppress:
+Suppress console output (True by default)</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
