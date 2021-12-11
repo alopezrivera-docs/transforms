@@ -36,184 +36,162 @@ Transforms
 &#34;&#34;&#34;
 
 
-import sys
 import numpy as np
 import sympy as sp
+
 from sympy.utilities.lambdify import lambdify
 
 from alexandria.shell import print_color
-from alexandria.data_structs.array import pretty_array
-from alexandria.data_structs.string import tuple_to_equal
 
 
-class T:
-
-    def __init__(self, delta=None, matrix=None, params=None):
+class R:
+    &#34;&#34;&#34;
+    General rotation matrix
+    -----------------------
+    &#34;&#34;&#34;
+    def __init__(self, matrix, params):
         &#34;&#34;&#34;
-        Linear transformation
-            Describes coordinates in the **NON-ROTATED REFERENCE FRAME** from the **BODY REFERENCE FRAME**
-
-        :param delta:       Rotation angle in radians
-        :param suppress:    Suppress console output (True by default)
+        :param matrix: Rotation matrix
+        :param params: Set of parameters
         &#34;&#34;&#34;
-        if not isinstance(delta, type(None)):
-            # Angle
-            self.delta = delta
-            self.is_symbolic = hasattr(delta, &#39;__module__&#39;) and &#39;sympy&#39; in delta.__module__
-            # Parameter vector for lambdification
-            self.params = [delta] if not isinstance(delta, sp.core.mul.Mul) else list(delta.free_symbols)
-            # Rotation matrix creation
-            self.matrix = self.symbolic() if self.is_symbolic else self.numerical()
-        elif not isinstance(matrix, type(None)) and not(isinstance(params, type(None))):
-            # Angle
-            self.is_symbolic = any(isinstance(angle, sp.core.symbol.Symbol) for angle in params)
-            # Parameter vector for lambdification
-            self.params = params
-            # Initialize matrix
-            self.matrix = matrix
-        else:
-            sys.exit(&#34;Attempted to initialize transformation without providing angle or matrix and params&#34;)
 
+        self.matrix = matrix
+        self.params = params
+
+    &#34;&#34;&#34;
+    Properties
+    &#34;&#34;&#34;
     def T(self):
         &#34;&#34;&#34;
-        Transform transpose
-            Describes coordinates in a **FINAL REFERENCE FRAME** from the **NON-ROTATING REFERENCE FRAME**.
-
-            In other words, it describes the rotation of a body from a fixed reference frame.
-        :return:
+        Rotation matrix Transpose
         &#34;&#34;&#34;
-        return globals()[type(self).__name__](matrix=self.matrix.T, params=self.params)
+        return R(matrix=self.matrix.T, params=self.params)
 
-    def Inv(self):
+    def I(self):
         &#34;&#34;&#34;
-        As all transform matrices are orthogonal, their inverse is equal to their transpose.
+        Rotation matrix Inverse
+        -----------------------
 
-        Transform inverse
-            Describes coordinates in a **FINAL REFERENCE FRAME** from the **NON-ROTATING REFERENCE FRAME**.
-
-            IMPORTANTLY: The rotation angles are reversed.
+        COUNTERROTATION of that described by the
+        inverted rotation matrix.
+        - Inverse matrix
+        - Negative angles
         &#34;&#34;&#34;
         # Transpose
         inv_matrix = self.matrix.T
         # Negative angles
         for param in self.params:
             inv_matrix.subs(param, -param)
-        return globals()[type(self).__name__](matrix=inv_matrix, params=self.params)
+        return R(matrix=inv_matrix, params=self.params)
 
     &#34;&#34;&#34;
     Operators
     &#34;&#34;&#34;
-    def __mul__(self, other):
-        &#34;&#34;&#34;
-        Multiplication between transforms, as well as between transforms and NumPy/SymPy arrays
-        &#34;&#34;&#34;
+    def _operate(self, other, f):
 
-        T_res = globals()[type(self).__name__]
-
-        if type(other).__bases__ == type(self).__bases__:
-            # Transform-Transform multiplication
-            #       If self and other are instances of classes with the same parent class &lt;class &#39;transform.T&#39;&gt;
-            if isinstance(self.matrix, type(other.matrix)):
-                # Both matrices are either SymPy matrices or NumPy arrays
-                matrix = self.matrix * other.matrix if self.is_symbolic else np.matmul(self.matrix, other.matrix)
-                # Right to left transform order -&gt; same parameter order
-                params = other.params + self.params
-                return T_res(matrix=matrix, params=params)
-            else:
-                # Type mismatch: surely 1 will be symbolic, and 1 will not
-                self.type_mismatch(other)
-                matrix = sp.Matrix(np.matmul(self.matrix, other.matrix))
-                return T_res(matrix=matrix, params=self.params)
+        # Another rotation matrix
+        if isinstance(other, R):
+            return R(matrix=f(self.matrix, other.matrix), params=self.params | other.params)
+        # A NumPy array
+        elif isinstance(other, np.ndarray):
+            return R(matrix=f(self.matrix, other), params=self.params)
+        # A SymPy array
+        elif &#39;sympy&#39; in other.__module__:
+            return R(matrix=f(self.matrix, other), params=self.params | other.free_symbols)
         else:
-            # Transform-NumPy/SymPy array multiplication
-            if sp.Matrix(other).free_symbols:
-                self.params += list(sp.Matrix(other).free_symbols)
-            matrix = sp.Matrix(np.matmul(self.matrix, other)) if self.is_symbolic else np.matmul(self.matrix, other)
-            return T_res(matrix=matrix, params=self.params)
+            raise ValueError(&#34;Multiplication input invalid. It should be either a rotation, or a NumPy or SymPy array.&#34;)
+
+    def __mul__(self, other):
+        return self._operate(other, lambda m1, m2: m1 * m2)
 
     def __add__(self, other):
-        &#34;&#34;&#34;
-        Addition between transforms, as well as between transforms and NumPy/SymPy arrays
-        &#34;&#34;&#34;
-
-        T_res = globals()[type(self).__name__]
-
-        if type(other).__bases__ == type(self).__bases__:
-            # Transform-Transform multiplication
-            #       If self and other are instances of classes with the same parent class &lt;class &#39;transform.T&#39;&gt;
-            if isinstance(self.matrix, type(other.matrix)):
-                # Both matrices are either SymPy matrices or NumPy arrays
-                matrix = self.matrix + other.matrix if self.is_symbolic else np.matmul(self.matrix, other.matrix)
-                # Right to left transform order -&gt; same parameter order
-                params = other.params + self.params
-                return T_res(matrix=matrix, params=params)
-            else:
-                # Type mismatch: surely 1 will be symbolic, and 1 will not
-                self.type_mismatch(other)
-                matrix = sp.Matrix(self.matrix + other.matrix)
-                return T_res(matrix=matrix, params=self.params)
-        else:
-            # Transform-NumPy/SymPy array multiplication
-            if sp.Matrix(other).free_symbols:
-                self.params += list(sp.Matrix(other).free_symbols)
-            matrix = sp.Matrix(self.matrix + other) if self.is_symbolic else self.matrix + other
-            return T_res(matrix=matrix, params=self.params)
-
-    def __rmul__(self, other):
-        return self.__mul__(other)
-
-    def __call__(self, *args):
-        &#34;&#34;&#34;
-        Transform call
-
-        When an array of parameters of size n is passed, it will return:
-            - A number n of square if the transform instance contains a square transform matrix
-            - An array of length 3 with each entry an array of length n, representing x, y and z coordinates, if the
-              transform instance contains a transformed vector.
-
-        - If suppress is False, the parameters to be substituted will be printed together with their
-          assigned numerical values
-
-        :param args: Values of the symbolic parameters.
-        :return: Symbolic transform matrix or transformed vector, with all symbolic parameters replaced by arguments.
-        &#34;&#34;&#34;
-
-        f = self.get_lambda()
-        r = f(*args)
-
-        return r
+        return self._operate(other, lambda m1, m2: m1 + m2)
 
     def __getitem__(self, item):
         return self.matrix.item(item)
 
-    def __repr__(self):
-        return sp.pretty(self.matrix) if self.is_symbolic else \
-               pretty_array(self.matrix)
-
     &#34;&#34;&#34;
     Export
     &#34;&#34;&#34;
-    def get_lambda(self, suppress=True):
+    def __call__(self, *args, **kwargs):
         &#34;&#34;&#34;
-        Transform lambdification
+        Retrieve numerical rotation matrix
+        ----------------------------------
 
-        When an array of parameters of size n is passed to the lambdified transform, it will return:
-            - A number n of square if the transform instance contains a square transform matrix
-            - An array of length 3 with each entry an array of length n, representing x, y and z coordinates, if the
-              transform instance contains a transformed vector.
-
-        :return: Symbolic transform matrix or transformed vector lambda function. When called, all symbolic parameters
-                 are replaced by the provided arguments.
+        :param args:
+            1. Single parameter
+            2. List of matrix parameters
+            3. List of NumPy arrays
+                -&gt; 1 array per parameter
         &#34;&#34;&#34;
 
-        f = lambdify(self.params, self.matrix)
+        f = lambdify(list(self.params), self.matrix)
 
-        return f
+        # Check arguments
+        assert not (args and kwargs), \
+            &#34;Combination of non-keyword and keyword arguments not supported&#34;
 
-    def free_symbols(self):
-        return tuple(list(self.matrix.atoms(sp.Symbol)))
+        arguments = []
+        if args:
+            arguments += args
+        if kwargs:
+            arguments += list(kwargs.values())
 
-    def to_latex(self, var=&#34;T&#34;):
+        assert len(arguments) == len(self.params), \
+            f&#34;Argument number mismatch. Arguments in the matrix:\n\n   {&#39;, &#39;.join(str(p) for p in self.params)}&#34;
+
+        # Return functions
+        def arg_rec_return(argument):
+
+            # Input type
+            a_tuple  = isinstance(argument, tuple)
+            an_array = isinstance(argument, np.ndarray)
+
+            # Return
+            if a_tuple:
+                if isinstance(argument[0], np.ndarray):
+                    return [arg_rec_return(v) for v in np.vstack(argument).T]
+                else:
+                    return f(*argument)
+            elif an_array:
+                return [f(v) for v in argument]
+            else:
+                return f(*argument)
+
+        def kwarg_rec_return(dictionary):
+
+            # Argument type
+            arrays = isinstance(list(dictionary.values())[0], np.ndarray)
+
+            # Return
+            if arrays:
+
+                array_list = list(dictionary.values())
+                array_size = array_list[0].size
+                assert [a.size == array_size for a in array_list], \
+                    &#34;Input arrays do not have the same internal size.&#34;
+
+                keys   = list(dictionary.keys())
+                values = np.vstack(list(dictionary.values())).T
+
+                return [f(**dict(zip(keys, list(values[i])))) for i in range(array_size)]
+
+            else:
+                return f(**kwargs)
+
+        # Out
+        if args:
+            return arg_rec_return(args)
+        if kwargs:
+            return kwarg_rec_return(kwargs)
+
+    &#34;&#34;&#34;
+    Representation
+    &#34;&#34;&#34;
+    def __repr__(self):
+        return sp.pretty(self.matrix)
+
+    def latex(self, var=&#34;T&#34;):
         lx = &#34;\n&#34;\
              r&#34;\begin{equation}&#34;                   + \
              f&#34;\n   {var} = {sp.latex(self.matrix)}\n&#34; + \
@@ -222,43 +200,55 @@ class T:
         return lx
 
 
+class T(R):
+    &#34;&#34;&#34;
+    Transformation Matrix
+    ---------------------
+
+    By convention, a transformation matrix maps the coordinates of
+    objects in an INERTIAL REFERENCE FRAME to their coordinates in
+    a ROTATING one.
+    &#34;&#34;&#34;
+    def __init__(self, delta):
+
+        super(T, self).__init__(self._matrix(delta), {delta})
+
+        # Transform transpose
+        self.T = self.T()
+
+
 class Tx(T):
+    &#34;&#34;&#34;
+    Transformation: X axis
+    ----------------------
+    &#34;&#34;&#34;
 
-    def numerical(self):
-        return np.array([[1, 0, 0],
-                         [0, np.cos(self.delta), np.sin(self.delta)],
-                         [0, -np.sin(self.delta), np.cos(self.delta)]])
-
-    def symbolic(self):
-        return sp.Matrix([[1,  0,                   0],
-                         [0,  sp.cos(self.delta),  sp.sin(self.delta)],
-                         [0, -sp.sin(self.delta),  sp.cos(self.delta)]])
+    def _matrix(self, delta):
+        return sp.Matrix([[1,  0,              0],
+                          [0,  sp.cos(delta),  sp.sin(delta)],
+                          [0, -sp.sin(delta),  sp.cos(delta)]])
 
 
 class Ty(T):
-
-    def numerical(self):
-        return np.array([[np.cos(self.delta), 0, -np.sin(self.delta)],
-                         [0,                  1, 1],
-                         [np.sin(self.delta), 0, np.cos(self.delta)]])
-
-    def symbolic(self):
-        return sp.Matrix([[sp.cos(self.delta), 0, -sp.sin(self.delta)],
-                          [0,                  1, 0],
-                          [sp.sin(self.delta), 0, sp.cos(self.delta)]])
+    &#34;&#34;&#34;
+    Transformation: Y axis
+    ----------------------
+    &#34;&#34;&#34;
+    def _matrix(self, delta):
+        return sp.Matrix([[sp.cos(delta), 0, -sp.sin(delta)],
+                          [0,             1,  0],
+                          [sp.sin(delta), 0,  sp.cos(delta)]])
 
 
 class Tz(T):
-
-    def numerical(self):
-        return np.array([[np.cos(self.delta),  np.sin(self.delta), 0],
-                         [-np.sin(self.delta), np.cos(self.delta), 0],
-                         [0,                  0,                  1]])
-
-    def symbolic(self):
-        return sp.Matrix([[sp.cos(self.delta),  sp.sin(self.delta), 0],
-                          [-sp.sin(self.delta), sp.cos(self.delta), 0],
-                          [0,                  0,                  1]])</code></pre>
+    &#34;&#34;&#34;
+    Transformation: Z axis
+    ----------------------
+    &#34;&#34;&#34;
+    def _matrix(self, delta):
+        return sp.Matrix([[sp.cos(delta),  sp.sin(delta), 0],
+                          [-sp.sin(delta), sp.cos(delta), 0],
+                          [0,              0,             1]])</code></pre>
 </details>
 </section>
 <section>
@@ -270,189 +260,166 @@ class Tz(T):
 <section>
 <h2 class="section-title" id="header-classes">Classes</h2>
 <dl>
-<dt id="transforms.T"><code class="flex name class">
-<span>class <span class="ident">T</span></span>
-<span>(</span><span>delta=None, matrix=None, params=None)</span>
+<dt id="transforms.R"><code class="flex name class">
+<span>class <span class="ident">R</span></span>
+<span>(</span><span>matrix, params)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Linear transformation
-Describes coordinates in the <strong>NON-ROTATED REFERENCE FRAME</strong> from the <strong>BODY REFERENCE FRAME</strong></p>
-<p>:param delta:
-Rotation angle in radians
-:param suppress:
-Suppress console output (True by default)</p></div>
+<div class="desc"><h2 id="general-rotation-matrix">General Rotation Matrix</h2>
+<p>:param matrix: Rotation matrix
+:param params: Set of parameters</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class T:
-
-    def __init__(self, delta=None, matrix=None, params=None):
+<pre><code class="python">class R:
+    &#34;&#34;&#34;
+    General rotation matrix
+    -----------------------
+    &#34;&#34;&#34;
+    def __init__(self, matrix, params):
         &#34;&#34;&#34;
-        Linear transformation
-            Describes coordinates in the **NON-ROTATED REFERENCE FRAME** from the **BODY REFERENCE FRAME**
-
-        :param delta:       Rotation angle in radians
-        :param suppress:    Suppress console output (True by default)
+        :param matrix: Rotation matrix
+        :param params: Set of parameters
         &#34;&#34;&#34;
-        if not isinstance(delta, type(None)):
-            # Angle
-            self.delta = delta
-            self.is_symbolic = hasattr(delta, &#39;__module__&#39;) and &#39;sympy&#39; in delta.__module__
-            # Parameter vector for lambdification
-            self.params = [delta] if not isinstance(delta, sp.core.mul.Mul) else list(delta.free_symbols)
-            # Rotation matrix creation
-            self.matrix = self.symbolic() if self.is_symbolic else self.numerical()
-        elif not isinstance(matrix, type(None)) and not(isinstance(params, type(None))):
-            # Angle
-            self.is_symbolic = any(isinstance(angle, sp.core.symbol.Symbol) for angle in params)
-            # Parameter vector for lambdification
-            self.params = params
-            # Initialize matrix
-            self.matrix = matrix
-        else:
-            sys.exit(&#34;Attempted to initialize transformation without providing angle or matrix and params&#34;)
 
+        self.matrix = matrix
+        self.params = params
+
+    &#34;&#34;&#34;
+    Properties
+    &#34;&#34;&#34;
     def T(self):
         &#34;&#34;&#34;
-        Transform transpose
-            Describes coordinates in a **FINAL REFERENCE FRAME** from the **NON-ROTATING REFERENCE FRAME**.
-
-            In other words, it describes the rotation of a body from a fixed reference frame.
-        :return:
+        Rotation matrix Transpose
         &#34;&#34;&#34;
-        return globals()[type(self).__name__](matrix=self.matrix.T, params=self.params)
+        return R(matrix=self.matrix.T, params=self.params)
 
-    def Inv(self):
+    def I(self):
         &#34;&#34;&#34;
-        As all transform matrices are orthogonal, their inverse is equal to their transpose.
+        Rotation matrix Inverse
+        -----------------------
 
-        Transform inverse
-            Describes coordinates in a **FINAL REFERENCE FRAME** from the **NON-ROTATING REFERENCE FRAME**.
-
-            IMPORTANTLY: The rotation angles are reversed.
+        COUNTERROTATION of that described by the
+        inverted rotation matrix.
+        - Inverse matrix
+        - Negative angles
         &#34;&#34;&#34;
         # Transpose
         inv_matrix = self.matrix.T
         # Negative angles
         for param in self.params:
             inv_matrix.subs(param, -param)
-        return globals()[type(self).__name__](matrix=inv_matrix, params=self.params)
+        return R(matrix=inv_matrix, params=self.params)
 
     &#34;&#34;&#34;
     Operators
     &#34;&#34;&#34;
-    def __mul__(self, other):
-        &#34;&#34;&#34;
-        Multiplication between transforms, as well as between transforms and NumPy/SymPy arrays
-        &#34;&#34;&#34;
+    def _operate(self, other, f):
 
-        T_res = globals()[type(self).__name__]
-
-        if type(other).__bases__ == type(self).__bases__:
-            # Transform-Transform multiplication
-            #       If self and other are instances of classes with the same parent class &lt;class &#39;transform.T&#39;&gt;
-            if isinstance(self.matrix, type(other.matrix)):
-                # Both matrices are either SymPy matrices or NumPy arrays
-                matrix = self.matrix * other.matrix if self.is_symbolic else np.matmul(self.matrix, other.matrix)
-                # Right to left transform order -&gt; same parameter order
-                params = other.params + self.params
-                return T_res(matrix=matrix, params=params)
-            else:
-                # Type mismatch: surely 1 will be symbolic, and 1 will not
-                self.type_mismatch(other)
-                matrix = sp.Matrix(np.matmul(self.matrix, other.matrix))
-                return T_res(matrix=matrix, params=self.params)
+        # Another rotation matrix
+        if isinstance(other, R):
+            return R(matrix=f(self.matrix, other.matrix), params=self.params | other.params)
+        # A NumPy array
+        elif isinstance(other, np.ndarray):
+            return R(matrix=f(self.matrix, other), params=self.params)
+        # A SymPy array
+        elif &#39;sympy&#39; in other.__module__:
+            return R(matrix=f(self.matrix, other), params=self.params | other.free_symbols)
         else:
-            # Transform-NumPy/SymPy array multiplication
-            if sp.Matrix(other).free_symbols:
-                self.params += list(sp.Matrix(other).free_symbols)
-            matrix = sp.Matrix(np.matmul(self.matrix, other)) if self.is_symbolic else np.matmul(self.matrix, other)
-            return T_res(matrix=matrix, params=self.params)
+            raise ValueError(&#34;Multiplication input invalid. It should be either a rotation, or a NumPy or SymPy array.&#34;)
+
+    def __mul__(self, other):
+        return self._operate(other, lambda m1, m2: m1 * m2)
 
     def __add__(self, other):
-        &#34;&#34;&#34;
-        Addition between transforms, as well as between transforms and NumPy/SymPy arrays
-        &#34;&#34;&#34;
-
-        T_res = globals()[type(self).__name__]
-
-        if type(other).__bases__ == type(self).__bases__:
-            # Transform-Transform multiplication
-            #       If self and other are instances of classes with the same parent class &lt;class &#39;transform.T&#39;&gt;
-            if isinstance(self.matrix, type(other.matrix)):
-                # Both matrices are either SymPy matrices or NumPy arrays
-                matrix = self.matrix + other.matrix if self.is_symbolic else np.matmul(self.matrix, other.matrix)
-                # Right to left transform order -&gt; same parameter order
-                params = other.params + self.params
-                return T_res(matrix=matrix, params=params)
-            else:
-                # Type mismatch: surely 1 will be symbolic, and 1 will not
-                self.type_mismatch(other)
-                matrix = sp.Matrix(self.matrix + other.matrix)
-                return T_res(matrix=matrix, params=self.params)
-        else:
-            # Transform-NumPy/SymPy array multiplication
-            if sp.Matrix(other).free_symbols:
-                self.params += list(sp.Matrix(other).free_symbols)
-            matrix = sp.Matrix(self.matrix + other) if self.is_symbolic else self.matrix + other
-            return T_res(matrix=matrix, params=self.params)
-
-    def __rmul__(self, other):
-        return self.__mul__(other)
-
-    def __call__(self, *args):
-        &#34;&#34;&#34;
-        Transform call
-
-        When an array of parameters of size n is passed, it will return:
-            - A number n of square if the transform instance contains a square transform matrix
-            - An array of length 3 with each entry an array of length n, representing x, y and z coordinates, if the
-              transform instance contains a transformed vector.
-
-        - If suppress is False, the parameters to be substituted will be printed together with their
-          assigned numerical values
-
-        :param args: Values of the symbolic parameters.
-        :return: Symbolic transform matrix or transformed vector, with all symbolic parameters replaced by arguments.
-        &#34;&#34;&#34;
-
-        f = self.get_lambda()
-        r = f(*args)
-
-        return r
+        return self._operate(other, lambda m1, m2: m1 + m2)
 
     def __getitem__(self, item):
         return self.matrix.item(item)
 
-    def __repr__(self):
-        return sp.pretty(self.matrix) if self.is_symbolic else \
-               pretty_array(self.matrix)
-
     &#34;&#34;&#34;
     Export
     &#34;&#34;&#34;
-    def get_lambda(self, suppress=True):
+    def __call__(self, *args, **kwargs):
         &#34;&#34;&#34;
-        Transform lambdification
+        Retrieve numerical rotation matrix
+        ----------------------------------
 
-        When an array of parameters of size n is passed to the lambdified transform, it will return:
-            - A number n of square if the transform instance contains a square transform matrix
-            - An array of length 3 with each entry an array of length n, representing x, y and z coordinates, if the
-              transform instance contains a transformed vector.
-
-        :return: Symbolic transform matrix or transformed vector lambda function. When called, all symbolic parameters
-                 are replaced by the provided arguments.
+        :param args:
+            1. Single parameter
+            2. List of matrix parameters
+            3. List of NumPy arrays
+                -&gt; 1 array per parameter
         &#34;&#34;&#34;
 
-        f = lambdify(self.params, self.matrix)
+        f = lambdify(list(self.params), self.matrix)
 
-        return f
+        # Check arguments
+        assert not (args and kwargs), \
+            &#34;Combination of non-keyword and keyword arguments not supported&#34;
 
-    def free_symbols(self):
-        return tuple(list(self.matrix.atoms(sp.Symbol)))
+        arguments = []
+        if args:
+            arguments += args
+        if kwargs:
+            arguments += list(kwargs.values())
 
-    def to_latex(self, var=&#34;T&#34;):
+        assert len(arguments) == len(self.params), \
+            f&#34;Argument number mismatch. Arguments in the matrix:\n\n   {&#39;, &#39;.join(str(p) for p in self.params)}&#34;
+
+        # Return functions
+        def arg_rec_return(argument):
+
+            # Input type
+            a_tuple  = isinstance(argument, tuple)
+            an_array = isinstance(argument, np.ndarray)
+
+            # Return
+            if a_tuple:
+                if isinstance(argument[0], np.ndarray):
+                    return [arg_rec_return(v) for v in np.vstack(argument).T]
+                else:
+                    return f(*argument)
+            elif an_array:
+                return [f(v) for v in argument]
+            else:
+                return f(*argument)
+
+        def kwarg_rec_return(dictionary):
+
+            # Argument type
+            arrays = isinstance(list(dictionary.values())[0], np.ndarray)
+
+            # Return
+            if arrays:
+
+                array_list = list(dictionary.values())
+                array_size = array_list[0].size
+                assert [a.size == array_size for a in array_list], \
+                    &#34;Input arrays do not have the same internal size.&#34;
+
+                keys   = list(dictionary.keys())
+                values = np.vstack(list(dictionary.values())).T
+
+                return [f(**dict(zip(keys, list(values[i])))) for i in range(array_size)]
+
+            else:
+                return f(**kwargs)
+
+        # Out
+        if args:
+            return arg_rec_return(args)
+        if kwargs:
+            return kwarg_rec_return(kwargs)
+
+    &#34;&#34;&#34;
+    Representation
+    &#34;&#34;&#34;
+    def __repr__(self):
+        return sp.pretty(self.matrix)
+
+    def latex(self, var=&#34;T&#34;):
         lx = &#34;\n&#34;\
              r&#34;\begin{equation}&#34;                   + \
              f&#34;\n   {var} = {sp.latex(self.matrix)}\n&#34; + \
@@ -462,68 +429,59 @@ Suppress console output (True by default)</p></div>
 </details>
 <h3>Subclasses</h3>
 <ul class="hlist">
-<li><a title="transforms.Tx" href="#transforms.Tx">Tx</a></li>
-<li><a title="transforms.Ty" href="#transforms.Ty">Ty</a></li>
-<li><a title="transforms.Tz" href="#transforms.Tz">Tz</a></li>
+<li><a title="transforms.T" href="#transforms.T">T</a></li>
 </ul>
 <h3>Methods</h3>
 <dl>
-<dt id="transforms.T.Inv"><code class="name flex">
-<span>def <span class="ident">Inv</span></span>(<span>self)</span>
+<dt id="transforms.R.I"><code class="name flex">
+<span>def <span class="ident">I</span></span>(<span>self)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>As all transform matrices are orthogonal, their inverse is equal to their transpose.</p>
-<p>Transform inverse
-Describes coordinates in a <strong>FINAL REFERENCE FRAME</strong> from the <strong>NON-ROTATING REFERENCE FRAME</strong>.</p>
-<pre><code>IMPORTANTLY: The rotation angles are reversed.
-</code></pre></div>
+<div class="desc"><h2 id="rotation-matrix-inverse">Rotation Matrix Inverse</h2>
+<p>COUNTERROTATION of that described by the
+inverted rotation matrix.
+- Inverse matrix
+- Negative angles</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def Inv(self):
+<pre><code class="python">def I(self):
     &#34;&#34;&#34;
-    As all transform matrices are orthogonal, their inverse is equal to their transpose.
+    Rotation matrix Inverse
+    -----------------------
 
-    Transform inverse
-        Describes coordinates in a **FINAL REFERENCE FRAME** from the **NON-ROTATING REFERENCE FRAME**.
-
-        IMPORTANTLY: The rotation angles are reversed.
+    COUNTERROTATION of that described by the
+    inverted rotation matrix.
+    - Inverse matrix
+    - Negative angles
     &#34;&#34;&#34;
     # Transpose
     inv_matrix = self.matrix.T
     # Negative angles
     for param in self.params:
         inv_matrix.subs(param, -param)
-    return globals()[type(self).__name__](matrix=inv_matrix, params=self.params)</code></pre>
+    return R(matrix=inv_matrix, params=self.params)</code></pre>
 </details>
 </dd>
-<dt id="transforms.T.T"><code class="name flex">
+<dt id="transforms.R.T"><code class="name flex">
 <span>def <span class="ident">T</span></span>(<span>self)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Transform transpose
-Describes coordinates in a <strong>FINAL REFERENCE FRAME</strong> from the <strong>NON-ROTATING REFERENCE FRAME</strong>.</p>
-<pre><code>In other words, it describes the rotation of a body from a fixed reference frame.
-</code></pre>
-<p>:return:</p></div>
+<div class="desc"><p>Rotation matrix Transpose</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def T(self):
     &#34;&#34;&#34;
-    Transform transpose
-        Describes coordinates in a **FINAL REFERENCE FRAME** from the **NON-ROTATING REFERENCE FRAME**.
-
-        In other words, it describes the rotation of a body from a fixed reference frame.
-    :return:
+    Rotation matrix Transpose
     &#34;&#34;&#34;
-    return globals()[type(self).__name__](matrix=self.matrix.T, params=self.params)</code></pre>
+    return R(matrix=self.matrix.T, params=self.params)</code></pre>
 </details>
 </dd>
-<dt id="transforms.T.free_symbols"><code class="name flex">
-<span>def <span class="ident">free_symbols</span></span>(<span>self)</span>
+<dt id="transforms.R.latex"><code class="name flex">
+<span>def <span class="ident">latex</span></span>(<span>self, var='T')</span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -531,53 +489,7 @@ Describes coordinates in a <strong>FINAL REFERENCE FRAME</strong> from the <stro
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def free_symbols(self):
-    return tuple(list(self.matrix.atoms(sp.Symbol)))</code></pre>
-</details>
-</dd>
-<dt id="transforms.T.get_lambda"><code class="name flex">
-<span>def <span class="ident">get_lambda</span></span>(<span>self, suppress=True)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Transform lambdification</p>
-<p>When an array of parameters of size n is passed to the lambdified transform, it will return:
-- A number n of square if the transform instance contains a square transform matrix
-- An array of length 3 with each entry an array of length n, representing x, y and z coordinates, if the
-transform instance contains a transformed vector.</p>
-<p>:return: Symbolic transform matrix or transformed vector lambda function. When called, all symbolic parameters
-are replaced by the provided arguments.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def get_lambda(self, suppress=True):
-    &#34;&#34;&#34;
-    Transform lambdification
-
-    When an array of parameters of size n is passed to the lambdified transform, it will return:
-        - A number n of square if the transform instance contains a square transform matrix
-        - An array of length 3 with each entry an array of length n, representing x, y and z coordinates, if the
-          transform instance contains a transformed vector.
-
-    :return: Symbolic transform matrix or transformed vector lambda function. When called, all symbolic parameters
-             are replaced by the provided arguments.
-    &#34;&#34;&#34;
-
-    f = lambdify(self.params, self.matrix)
-
-    return f</code></pre>
-</details>
-</dd>
-<dt id="transforms.T.to_latex"><code class="name flex">
-<span>def <span class="ident">to_latex</span></span>(<span>self, var='T')</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def to_latex(self, var=&#34;T&#34;):
+<pre><code class="python">def latex(self, var=&#34;T&#34;):
     lx = &#34;\n&#34;\
          r&#34;\begin{equation}&#34;                   + \
          f&#34;\n   {var} = {sp.latex(self.matrix)}\n&#34; + \
@@ -588,227 +500,165 @@ are replaced by the provided arguments.</p></div>
 </dd>
 </dl>
 </dd>
-<dt id="transforms.Tx"><code class="flex name class">
-<span>class <span class="ident">Tx</span></span>
-<span>(</span><span>delta=None, matrix=None, params=None)</span>
+<dt id="transforms.T"><code class="flex name class">
+<span>class <span class="ident">T</span></span>
+<span>(</span><span>delta)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Linear transformation
-Describes coordinates in the <strong>NON-ROTATED REFERENCE FRAME</strong> from the <strong>BODY REFERENCE FRAME</strong></p>
-<p>:param delta:
-Rotation angle in radians
-:param suppress:
-Suppress console output (True by default)</p></div>
+<div class="desc"><h2 id="transformation-matrix">Transformation Matrix</h2>
+<p>By convention, a transformation matrix maps the coordinates of
+objects in an INERTIAL REFERENCE FRAME to their coordinates in
+a ROTATING one.</p>
+<p>:param matrix: Rotation matrix
+:param params: Set of parameters</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class T(R):
+    &#34;&#34;&#34;
+    Transformation Matrix
+    ---------------------
+
+    By convention, a transformation matrix maps the coordinates of
+    objects in an INERTIAL REFERENCE FRAME to their coordinates in
+    a ROTATING one.
+    &#34;&#34;&#34;
+    def __init__(self, delta):
+
+        super(T, self).__init__(self._matrix(delta), {delta})
+
+        # Transform transpose
+        self.T = self.T()</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="transforms.R" href="#transforms.R">R</a></li>
+</ul>
+<h3>Subclasses</h3>
+<ul class="hlist">
+<li><a title="transforms.Tx" href="#transforms.Tx">Tx</a></li>
+<li><a title="transforms.Ty" href="#transforms.Ty">Ty</a></li>
+<li><a title="transforms.Tz" href="#transforms.Tz">Tz</a></li>
+</ul>
+<h3>Inherited members</h3>
+<ul class="hlist">
+<li><code><b><a title="transforms.R" href="#transforms.R">R</a></b></code>:
+<ul class="hlist">
+<li><code><a title="transforms.R.I" href="#transforms.R.I">I</a></code></li>
+<li><code><a title="transforms.R.T" href="#transforms.R.T">T</a></code></li>
+</ul>
+</li>
+</ul>
+</dd>
+<dt id="transforms.Tx"><code class="flex name class">
+<span>class <span class="ident">Tx</span></span>
+<span>(</span><span>delta)</span>
+</code></dt>
+<dd>
+<div class="desc"><h2 id="transformation-x-axis">Transformation: X axis</h2>
+<p>:param matrix: Rotation matrix
+:param params: Set of parameters</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">class Tx(T):
+    &#34;&#34;&#34;
+    Transformation: X axis
+    ----------------------
+    &#34;&#34;&#34;
 
-    def numerical(self):
-        return np.array([[1, 0, 0],
-                         [0, np.cos(self.delta), np.sin(self.delta)],
-                         [0, -np.sin(self.delta), np.cos(self.delta)]])
-
-    def symbolic(self):
-        return sp.Matrix([[1,  0,                   0],
-                         [0,  sp.cos(self.delta),  sp.sin(self.delta)],
-                         [0, -sp.sin(self.delta),  sp.cos(self.delta)]])</code></pre>
+    def _matrix(self, delta):
+        return sp.Matrix([[1,  0,              0],
+                          [0,  sp.cos(delta),  sp.sin(delta)],
+                          [0, -sp.sin(delta),  sp.cos(delta)]])</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
 <li><a title="transforms.T" href="#transforms.T">T</a></li>
+<li><a title="transforms.R" href="#transforms.R">R</a></li>
 </ul>
-<h3>Methods</h3>
-<dl>
-<dt id="transforms.Tx.numerical"><code class="name flex">
-<span>def <span class="ident">numerical</span></span>(<span>self)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def numerical(self):
-    return np.array([[1, 0, 0],
-                     [0, np.cos(self.delta), np.sin(self.delta)],
-                     [0, -np.sin(self.delta), np.cos(self.delta)]])</code></pre>
-</details>
-</dd>
-<dt id="transforms.Tx.symbolic"><code class="name flex">
-<span>def <span class="ident">symbolic</span></span>(<span>self)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def symbolic(self):
-    return sp.Matrix([[1,  0,                   0],
-                     [0,  sp.cos(self.delta),  sp.sin(self.delta)],
-                     [0, -sp.sin(self.delta),  sp.cos(self.delta)]])</code></pre>
-</details>
-</dd>
-</dl>
 <h3>Inherited members</h3>
 <ul class="hlist">
 <li><code><b><a title="transforms.T" href="#transforms.T">T</a></b></code>:
 <ul class="hlist">
-<li><code><a title="transforms.T.Inv" href="#transforms.T.Inv">Inv</a></code></li>
-<li><code><a title="transforms.T.T" href="#transforms.T.T">T</a></code></li>
-<li><code><a title="transforms.T.get_lambda" href="#transforms.T.get_lambda">get_lambda</a></code></li>
+<li><code><a title="transforms.T.I" href="#transforms.R.I">I</a></code></li>
+<li><code><a title="transforms.T.T" href="#transforms.R.T">T</a></code></li>
 </ul>
 </li>
 </ul>
 </dd>
 <dt id="transforms.Ty"><code class="flex name class">
 <span>class <span class="ident">Ty</span></span>
-<span>(</span><span>delta=None, matrix=None, params=None)</span>
+<span>(</span><span>delta)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Linear transformation
-Describes coordinates in the <strong>NON-ROTATED REFERENCE FRAME</strong> from the <strong>BODY REFERENCE FRAME</strong></p>
-<p>:param delta:
-Rotation angle in radians
-:param suppress:
-Suppress console output (True by default)</p></div>
+<div class="desc"><h2 id="transformation-y-axis">Transformation: Y axis</h2>
+<p>:param matrix: Rotation matrix
+:param params: Set of parameters</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">class Ty(T):
-
-    def numerical(self):
-        return np.array([[np.cos(self.delta), 0, -np.sin(self.delta)],
-                         [0,                  1, 1],
-                         [np.sin(self.delta), 0, np.cos(self.delta)]])
-
-    def symbolic(self):
-        return sp.Matrix([[sp.cos(self.delta), 0, -sp.sin(self.delta)],
-                          [0,                  1, 0],
-                          [sp.sin(self.delta), 0, sp.cos(self.delta)]])</code></pre>
+    &#34;&#34;&#34;
+    Transformation: Y axis
+    ----------------------
+    &#34;&#34;&#34;
+    def _matrix(self, delta):
+        return sp.Matrix([[sp.cos(delta), 0, -sp.sin(delta)],
+                          [0,             1,  0],
+                          [sp.sin(delta), 0,  sp.cos(delta)]])</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
 <li><a title="transforms.T" href="#transforms.T">T</a></li>
+<li><a title="transforms.R" href="#transforms.R">R</a></li>
 </ul>
-<h3>Methods</h3>
-<dl>
-<dt id="transforms.Ty.numerical"><code class="name flex">
-<span>def <span class="ident">numerical</span></span>(<span>self)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def numerical(self):
-    return np.array([[np.cos(self.delta), 0, -np.sin(self.delta)],
-                     [0,                  1, 1],
-                     [np.sin(self.delta), 0, np.cos(self.delta)]])</code></pre>
-</details>
-</dd>
-<dt id="transforms.Ty.symbolic"><code class="name flex">
-<span>def <span class="ident">symbolic</span></span>(<span>self)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def symbolic(self):
-    return sp.Matrix([[sp.cos(self.delta), 0, -sp.sin(self.delta)],
-                      [0,                  1, 0],
-                      [sp.sin(self.delta), 0, sp.cos(self.delta)]])</code></pre>
-</details>
-</dd>
-</dl>
 <h3>Inherited members</h3>
 <ul class="hlist">
 <li><code><b><a title="transforms.T" href="#transforms.T">T</a></b></code>:
 <ul class="hlist">
-<li><code><a title="transforms.T.Inv" href="#transforms.T.Inv">Inv</a></code></li>
-<li><code><a title="transforms.T.T" href="#transforms.T.T">T</a></code></li>
-<li><code><a title="transforms.T.get_lambda" href="#transforms.T.get_lambda">get_lambda</a></code></li>
+<li><code><a title="transforms.T.I" href="#transforms.R.I">I</a></code></li>
+<li><code><a title="transforms.T.T" href="#transforms.R.T">T</a></code></li>
 </ul>
 </li>
 </ul>
 </dd>
 <dt id="transforms.Tz"><code class="flex name class">
 <span>class <span class="ident">Tz</span></span>
-<span>(</span><span>delta=None, matrix=None, params=None)</span>
+<span>(</span><span>delta)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Linear transformation
-Describes coordinates in the <strong>NON-ROTATED REFERENCE FRAME</strong> from the <strong>BODY REFERENCE FRAME</strong></p>
-<p>:param delta:
-Rotation angle in radians
-:param suppress:
-Suppress console output (True by default)</p></div>
+<div class="desc"><h2 id="transformation-z-axis">Transformation: Z axis</h2>
+<p>:param matrix: Rotation matrix
+:param params: Set of parameters</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">class Tz(T):
-
-    def numerical(self):
-        return np.array([[np.cos(self.delta),  np.sin(self.delta), 0],
-                         [-np.sin(self.delta), np.cos(self.delta), 0],
-                         [0,                  0,                  1]])
-
-    def symbolic(self):
-        return sp.Matrix([[sp.cos(self.delta),  sp.sin(self.delta), 0],
-                          [-sp.sin(self.delta), sp.cos(self.delta), 0],
-                          [0,                  0,                  1]])</code></pre>
+    &#34;&#34;&#34;
+    Transformation: Z axis
+    ----------------------
+    &#34;&#34;&#34;
+    def _matrix(self, delta):
+        return sp.Matrix([[sp.cos(delta),  sp.sin(delta), 0],
+                          [-sp.sin(delta), sp.cos(delta), 0],
+                          [0,              0,             1]])</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
 <li><a title="transforms.T" href="#transforms.T">T</a></li>
+<li><a title="transforms.R" href="#transforms.R">R</a></li>
 </ul>
-<h3>Methods</h3>
-<dl>
-<dt id="transforms.Tz.numerical"><code class="name flex">
-<span>def <span class="ident">numerical</span></span>(<span>self)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def numerical(self):
-    return np.array([[np.cos(self.delta),  np.sin(self.delta), 0],
-                     [-np.sin(self.delta), np.cos(self.delta), 0],
-                     [0,                  0,                  1]])</code></pre>
-</details>
-</dd>
-<dt id="transforms.Tz.symbolic"><code class="name flex">
-<span>def <span class="ident">symbolic</span></span>(<span>self)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def symbolic(self):
-    return sp.Matrix([[sp.cos(self.delta),  sp.sin(self.delta), 0],
-                      [-sp.sin(self.delta), sp.cos(self.delta), 0],
-                      [0,                  0,                  1]])</code></pre>
-</details>
-</dd>
-</dl>
 <h3>Inherited members</h3>
 <ul class="hlist">
 <li><code><b><a title="transforms.T" href="#transforms.T">T</a></b></code>:
 <ul class="hlist">
-<li><code><a title="transforms.T.Inv" href="#transforms.T.Inv">Inv</a></code></li>
-<li><code><a title="transforms.T.T" href="#transforms.T.T">T</a></code></li>
-<li><code><a title="transforms.T.get_lambda" href="#transforms.T.get_lambda">get_lambda</a></code></li>
+<li><code><a title="transforms.T.I" href="#transforms.R.I">I</a></code></li>
+<li><code><a title="transforms.T.T" href="#transforms.R.T">T</a></code></li>
 </ul>
 </li>
 </ul>
@@ -827,35 +677,24 @@ Suppress console output (True by default)</p></div>
 <li><h3><a href="#header-classes">Classes</a></h3>
 <ul>
 <li>
-<h4><code><a title="transforms.T" href="#transforms.T">T</a></code></h4>
+<h4><code><a title="transforms.R" href="#transforms.R">R</a></code></h4>
 <ul class="">
-<li><code><a title="transforms.T.Inv" href="#transforms.T.Inv">Inv</a></code></li>
-<li><code><a title="transforms.T.T" href="#transforms.T.T">T</a></code></li>
-<li><code><a title="transforms.T.free_symbols" href="#transforms.T.free_symbols">free_symbols</a></code></li>
-<li><code><a title="transforms.T.get_lambda" href="#transforms.T.get_lambda">get_lambda</a></code></li>
-<li><code><a title="transforms.T.to_latex" href="#transforms.T.to_latex">to_latex</a></code></li>
+<li><code><a title="transforms.R.I" href="#transforms.R.I">I</a></code></li>
+<li><code><a title="transforms.R.T" href="#transforms.R.T">T</a></code></li>
+<li><code><a title="transforms.R.latex" href="#transforms.R.latex">latex</a></code></li>
 </ul>
+</li>
+<li>
+<h4><code><a title="transforms.T" href="#transforms.T">T</a></code></h4>
 </li>
 <li>
 <h4><code><a title="transforms.Tx" href="#transforms.Tx">Tx</a></code></h4>
-<ul class="">
-<li><code><a title="transforms.Tx.numerical" href="#transforms.Tx.numerical">numerical</a></code></li>
-<li><code><a title="transforms.Tx.symbolic" href="#transforms.Tx.symbolic">symbolic</a></code></li>
-</ul>
 </li>
 <li>
 <h4><code><a title="transforms.Ty" href="#transforms.Ty">Ty</a></code></h4>
-<ul class="">
-<li><code><a title="transforms.Ty.numerical" href="#transforms.Ty.numerical">numerical</a></code></li>
-<li><code><a title="transforms.Ty.symbolic" href="#transforms.Ty.symbolic">symbolic</a></code></li>
-</ul>
 </li>
 <li>
 <h4><code><a title="transforms.Tz" href="#transforms.Tz">Tz</a></code></h4>
-<ul class="">
-<li><code><a title="transforms.Tz.numerical" href="#transforms.Tz.numerical">numerical</a></code></li>
-<li><code><a title="transforms.Tz.symbolic" href="#transforms.Tz.symbolic">symbolic</a></code></li>
-</ul>
 </li>
 </ul>
 </li>
